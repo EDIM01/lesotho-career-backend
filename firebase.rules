@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+
+    function isStudent() {
+      return signedIn() &&
+             get(/databases/$(database)/documents/users/$(uid())).data.role == 'student';
+    }
+    function isCompany() {
+      return signedIn() &&
+             get(/databases/$(database)/documents/users/$(uid())).data.role == 'company';
+    }
+    function isInstitute() {
+      return signedIn() &&
+             get(/databases/$(database)/documents/users/$(uid())).data.role == 'institute';
+    }
+    function isAdmin() {
+      return signedIn() &&
+             get(/databases/$(database)/documents/users/$(uid())).data.role == 'admin';
+    }
+
+    // ── USERS ─────────────────────────────────────
+    match /users/{userId} {
+      allow read, update: if signedIn() && userId == uid();
+
+      match /notifications/{notifId} {
+        allow read, write: if signedIn() && userId == uid();
+      }
+    }
+
+    // ── INSTITUTIONS ───────────────────────────────
+    match /institutions/{instId} {
+      allow read: if signedIn();
+      allow create: if isAdmin() || isInstitute();
+      allow update, delete: if isAdmin() ||
+        (isInstitute() && get(/databases/$(database)/documents/users/$(uid())).data.profile.instId == instId);
+    }
+
+    // ── FACULTIES ──────────────────────────────────
+    match /faculties/{facId} {
+      allow read: if signedIn();
+      allow create: if isAdmin() || (isInstitute() && resource.data.instId == request.resource.data.instId);
+      allow update, delete: if isAdmin() ||
+        (isInstitute() && get(/databases/$(database)/documents/faculties/$(facId)).data.instId == get(/databases/$(database)/documents/users/$(uid())).data.profile.instId);
+    }
+
+    // ── COURSES ────────────────────────────────────
+    match /courses/{courseId} {
+      allow read: if signedIn() && (
+        resource.data.published == true ||
+        isAdmin() ||
+        (isInstitute() && resource.data.instId == get(/databases/$(database)/documents/users/$(uid())).data.profile.instId)
+      );
+      allow create: if isAdmin() || (isInstitute() && resource.data.instId == request.resource.data.instId);
+      allow update, delete: if isAdmin() ||
+        (isInstitute() && get(/databases/$(database)/documents/courses/$(courseId)).data.instId == get(/databases/$(database)/documents/users/$(uid())).data.profile.instId);
+    }
+
+    // ── APPLICATIONS ───────────────────────────────
+    match /applications/{appId} {
+      allow read: if signedIn() && (
+        resource.data.studentId == uid() ||
+        isAdmin() ||
+        (isInstitute() && resource.data.instId == get(/databases/$(database)/documents/users/$(uid())).data.profile.instId)
+      );
+      allow create: if isStudent() && request.resource.data.studentId == uid();
+      allow update: if isAdmin() ||
+        (isInstitute() && resource.data.instId == get(/databases/$(database)/documents/users/$(uid())).data.profile.instId);
+    }
+
+    // ── JOBS ───────────────────────────────────────
+    match /jobs/{jobId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isCompany() && resource.data.companyId == uid() || isAdmin();
+    }
+
+    // ── JOB APPLICATIONS ───────────────────────────
+    match /jobApplications/{appId} {
+      allow read: if signedIn() && (
+        resource.data.studentId == uid() ||
+        (isCompany() && get(/databases/$(database)/documents/jobs/$(resource.data.jobId)).data.companyId == uid()) ||
+        isAdmin()
+      );
+      allow create: if isStudent() && request.resource.data.studentId == uid();
+      allow update: if isStudent() && resource.data.studentId == uid(); 
+    }
+  }
+}
