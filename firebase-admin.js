@@ -1,83 +1,59 @@
-//career_assign/backend/firebase-admin.js
-// backend/firebase-admin.js
 const admin = require('firebase-admin');
-
-/**
- * Firebase Admin SDK Initialization
- * - Supports local JSON or base64 env var
- * - Initializes ONCE and only if credentials are valid
- * - Exits process on failure
- */
 
 let db = null;
 let auth = null;
 let storage = null;
 let FieldValue = null;
 let Timestamp = null;
-let adminInstance = null;
 
-const initializeFirebaseAdmin = () => {
-  if (admin.apps.length > 0) {
-    console.log('Firebase Admin already initialized');
-    return true;
+// Only initialize once
+if (!admin.apps.length) {
+  // 1. Try individual env vars (Render, Vercel, Railway)
+  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      }),
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'career-database-b2ec5.firebasestorage.app',
+    });
+    console.log('Firebase Admin initialized via individual env vars (Render/Vercel)');
   }
-
-  let serviceAccount = null;
-
-  // 1. Try local JSON file (dev)
-  try {
-    serviceAccount = require('./firebase-admin.json');
-    console.log('Firebase Admin: Loaded from ./firebase-admin.json');
-  } catch (err) {
-    // Ignore
-  }
-
-  // 2. Try base64 env var (prod)
-  if (!serviceAccount && process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
-    try {
-      const buff = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64');
-      serviceAccount = JSON.parse(buff.toString('utf8'));
-      console.log('Firebase Admin: Loaded from FIREBASE_SERVICE_ACCOUNT_BASE64');
-    } catch (parseErr) {
-      console.error('Invalid FIREBASE_SERVICE_ACCOUNT_BASE64:', parseErr.message);
-    }
-  }
-
-  // 3. Fail if no credentials
-  if (!serviceAccount) {
-    console.error('FIREBASE ADMIN INIT FAILED: No service account found');
-    console.error('  → Place "firebase-admin.json" in backend/');
-    console.error('  → OR set FIREBASE_SERVICE_ACCOUNT_BASE64 in .env');
-    process.exit(1);
-  }
-
-  // 4. Initialize SDK
-  try {
+  // 2. Fallback: base64 env var
+  else if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+    const serviceAccount = JSON.parse(
+      Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8')
+    );
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'career-database-b2ec5.firebasestorage.app',
     });
-
-    db = admin.firestore();
-    auth = admin.auth();
-    storage = admin.storage();
-    FieldValue = admin.firestore.FieldValue;
-    Timestamp = admin.firestore.Timestamp;
-    adminInstance = admin;
-
-    console.log('Firebase Admin SDK initialized successfully');
-    console.log(`   Project ID: ${adminInstance.projectId}`);
-    return true;
-  } catch (initErr) {
-    console.error('Firebase Admin initialization failed:', initErr.message);
-    process.exit(1);
+    console.log('Firebase Admin initialized via BASE64 env var');
   }
-};
-
-// Run initialization
-if (!initializeFirebaseAdmin()) {
-  process.exit(1);
+  // 3. Last resort: local file (only for localhost)
+  else {
+    try {
+      const serviceAccount = require('./firebase-admin.json');
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'career-database-b2ec5.firebasestorage.app',
+      });
+      console.log('Firebase Admin initialized via local firebase-admin.json (localhost only)');
+    } catch (err) {
+      console.error('FIREBASE ADMIN INIT FAILED: No credentials found');
+      console.error('Set FIREBASE_PROJECT_ID + FIREBASE_PRIVATE_KEY + FIREBASE_CLIENT_EMAIL in Render');
+      process.exit(1);
+    }
+  }
 }
+
+// Export everything
+db = admin.firestore();
+auth = admin.auth();
+storage = admin.storage();
+FieldValue = admin.firestore.FieldValue;
+Timestamp = admin.firestore.Timestamp;
 
 module.exports = {
   db,
@@ -85,5 +61,5 @@ module.exports = {
   storage,
   FieldValue,
   Timestamp,
-  admin: adminInstance,
+  admin,
 };
